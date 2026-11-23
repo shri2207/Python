@@ -1,1 +1,118 @@
+FUNCTION normalise_phone(phone):
+    KEEP digits only
+    IF number starts with country code 91 and has 12 digits:
+        RETURN "+" + number
+    ELSE IF number has 10 digits:
+        RETURN "+91" + number
+    ELSE:
+        RETURN "+" + number
+ 
+FUNCTION normalise_name(name):
+    RETURN lowercase(name) with extra spaces removed
+ 
+FOR each contact in all_sources:
+    normalise every phone number
+    normalise every email to lowercase
+    choose primary key:
+        first normalised phone, otherwise first normalised email
+    IF primary key exists:
+        create dictionary record if key is new
+        add all normalised phones to its phone set
+        add all normalised emails to its email set
+        keep a useful display name if available
+    ELSE:
+        place contact in manual_review list
+OUTPUT merged contacts and manual_review
+
+Stage 3 – Python implementation and tests
+import re
+from time import perf_counter
+ 
+def normalise_phone(value):
+    digits = re.sub(r"\D", "", value or "")
+    if not digits:
+        return ""
+    if len(digits) == 10:
+        return "+91" + digits
+    if len(digits) == 12 and digits.startswith("91"):
+        return "+" + digits
+    return "+" + digits
+ 
+def normalise_email(value):
+    return (value or "").strip().lower()
+ 
+def normalise_name(value):
+    return " ".join((value or "").lower().split())
+ 
+def merge_contacts(contact_sources):
+    merged = {}
+    manual_review = []
+ 
+    for source in contact_sources:
+        for contact in source:
+            raw_phones = contact.get("phones", [])
+            raw_emails = contact.get("emails", [])
+            phones = {normalise_phone(p) for p in raw_phones}
+            phones.discard("")
+            emails = {normalise_email(e) for e in raw_emails}
+            emails.discard("")
+ 
+            # Prefer a phone key; use email only if no phone is present.
+            key = sorted(phones)[0] if phones else (
+                "email:" + sorted(emails)[0] if emails else ""
+            )
+            if not key:
+                manual_review.append(contact)
+                continue
+ 
+            if key not in merged:
+                merged[key] = {
+                    "name": contact.get("name", "").strip(),
+                    "phones": set(),
+                    "emails": set()
+                }
+            merged[key]["phones"].update(phones)
+            merged[key]["emails"].update(emails)
+ 
+            if not merged[key]["name"] and contact.get("name"):
+                merged[key]["name"] = contact["name"].strip()
+ 
+    return merged, manual_review
+ 
+phone1 = [
+    {"name": "Dr. Ravi", "phones": ["+91 98400 12345"],
+     "emails": ["RAVI@example.com"]},
+    {"name": "Meena", "phones": ["9876543210"], "emails": []}
+]
+phone2 = [
+    {"name": "ravi kumar", "phones": ["9840012345"],
+     "emails": ["ravi@example.com", "rk@example.com"]},
+    {"name": "Ravi K", "phones": ["+91-98400-12345"], "emails": []},
+    {"name": "Meena", "phones": [], "emails": ["meena@example.com"]}
+]
+sim = [
+    {"name": "Unknown contact", "phones": [""], "emails": []}
+]
+ 
+result, review = merge_contacts([phone1, phone2, sim])
+for key, value in result.items():
+    print(key, value["name"], sorted(value["phones"]), sorted(value["emails"]))
+print("Manual review:", review)
+ 
+assert len(result) == 2
+assert len(review) == 1
+def make_contacts(n):
+    return [
+        {"name": f"Person {i}",
+         "phones": [f"{9000000000 + i:010d}"],
+         "emails": [f"person{i}@example.com"]}
+        for i in range(n)
+    ]
+ 
+for n in (1_000, 100_000):
+    data = make_contacts(n)
+    t0 = perf_counter()
+    merged, review = merge_contacts([data])
+    elapsed = perf_counter() - t0
+    print(n, "contacts:", elapsed, "seconds; merged:", len(merged))
 
