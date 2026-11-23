@@ -1,1 +1,37 @@
-
+def round_money(value): 
+return Decimal(value).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) 
+def rate_per_litre(fat, snf, season="normal"): 
+"""Return rate per litre using the selected season's rate card.""" 
+fat = Decimal(str(fat)) 
+snf = Decimal(str(snf)) 
+if season == "april_june": 
+base_rate = Decimal("32.00") 
+fat_step = Decimal("0.45") 
+else: 
+base_rate = Decimal("30.00") 
+fat_step = Decimal("0.40") 
+snf_step = Decimal("0.30") 
+fat_steps = int(((fat - Decimal("3.5")) / Decimal("0.1")) 
+.quantize(Decimal("1"), rounding=ROUND_HALF_UP)) 
+snf_steps = int(((snf - Decimal("8.5")) / Decimal("0.1")) 
+.quantize(Decimal("1"), rounding=ROUND_HALF_UP)) 
+rate = base_rate + Decimal(fat_steps) * fat_step 
+rate += Decimal(snf_steps) * snf_step 
+return round_money(rate) 
+def payout(litres, fat, snf, season="normal"): 
+litres = Decimal(str(litres)) 
+return round_money(litres * rate_per_litre(fat, snf, season)) 
+def ten_day_bonus(total_litres): 
+"""Return the total volume bonus for a ten-day period.""" 
+total_litres = Decimal(str(total_litres)) 
+if total_litres > Decimal("500"): 
+return round_money(total_litres * Decimal("0.50")) 
+return Decimal("0.00") 
+def final_ten_day_payment(daily_payments, total_litres): 
+return round_money(sum(daily_payments, Decimal("0.00")) 
++ ten_day_bonus(total_litres)) 
+# Example checks 
+print(rate_per_litre("3.50", "8.50", "april_june")) 
+print(payout("10", "3.50", "8.50", "april_june")) 
+print(ten_day_bonus("500")) 
+print(ten_day_bonus("501"))
