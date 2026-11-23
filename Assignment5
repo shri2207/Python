@@ -1,1 +1,99 @@
+import re
+from collections import Counter
+ 
+POSITIVE = {"good", "clean", "fast", "helpful", "improved"}
+NEGATIVE = {"bad", "dirty", "slow", "rude", "smoke", "broken"}
+NEGATORS = {"not", "never", "no"}
+ 
+def score(text):
+    words = text.lower().replace(".", " ").replace(",", " ").split()
+    total = 0
+    negate_next = False
+ 
+    for word in words:
+        if word in NEGATORS:
+            negate_next = not negate_next
+            continue
+        value = 1 if word in POSITIVE else -1 if word in NEGATIVE else 0
+        if value:
+            if negate_next:
+                value *= -1
+            total += value
+            negate_next = False
+    return total
+ 
+def label(text):
+    value = score(text)
+    return "positive" if value > 0 else "negative" if value < 0 else "neutral"
+ 
+STOP = {"the", "is", "a", "an", "and", "to", "of", "in", "from",
+        "was", "were", "are", "it", "not", "this", "that"}
+ 
+def summarise(complaints, limit=3):
+    sentences = []
+    for complaint in complaints:
+        sentences.extend(
+            part.strip() for part in re.split(r"(?<=[.!?])\s+", complaint)
+            if part.strip()
+        )
+ 
+    word_counts = Counter()
+    for sentence in sentences:
+        words = re.findall(r"[a-zA-Z]+", sentence.lower())
+        word_counts.update(w for w in words if w not in STOP)
+ 
+    important = {word for word, count in word_counts.most_common(5)}
+    ranked = []
+    for sentence in sentences:
+        words = re.findall(r"[a-zA-Z]+", sentence.lower())
+        ranked.append((sum(1 for w in words if w in important), sentence))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    return [sentence for points, sentence in ranked[:limit]]
+ 
+if __name__ == "__main__":
+    with open("complaints.txt", "r", encoding="utf-8") as file:
+        complaints = [line.strip() for line in file if line.strip()]
+ 
+    for complaint in complaints:
+        print(label(complaint), "|", complaint)
+ 
+    print("SUMMARY:")
+    for sentence in summarise(complaints):
+        print("-", sentence)
+ 
+    # Compare automatic labels with your manual labels.
+    # Enter one manual label per complaint in manual_labels.txt.
+    with open("manual_labels.txt", "r", encoding="utf-8") as file:
+        manual = [line.strip().lower() for line in file if line.strip()]
+ 
+    predicted = [label(text) for text in complaints]
+    if len(manual) != len(predicted):
+        print("Manual label count must match complaint count.")
+    else:
+        agreements = sum(a == b for a, b in zip(manual, predicted))
+        print("Agreement:", agreements, "/", len(predicted))
+        print("Agreement percentage:",
+              round(agreements / len(predicted) * 100, 2), "%")
+import sqlite3
+import time
+ 
+con = sqlite3.connect("air_quality.db")
+con.execute("CREATE TABLE IF NOT EXISTS readings "
+            "(station TEXT, day TEXT, pm25 REAL)")
+ 
+# Add an index for the repeated station-and-day filter.
+con.execute("CREATE INDEX IF NOT EXISTS idx_station_day "
+            "ON readings(station, day)")
+con.commit()
+ 
+query = "SELECT AVG(pm25) FROM readings WHERE station = ? AND day = ?"
+start = time.perf_counter()
+result = con.execute(query, ("Adyar", "2026-10-01")).fetchone()
+elapsed = time.perf_counter() - start
+ 
+print("Query result:", result[0])
+print("Query time:", elapsed)
+print(con.execute("EXPLAIN QUERY PLAN " + query,
+                  ("Adyar", "2026-10-01")).fetchall())
+con.close()
 
