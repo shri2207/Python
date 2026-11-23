@@ -1,1 +1,149 @@
 
+import csv
+from pathlib import Path
+ 
+class InvalidRegistration(Exception):
+    pass
+ 
+def valid_email(email):
+    email = email.strip()
+    if email.count("@") != 1:
+        return False
+    local, domain = email.split("@")
+    if not local or not domain:
+        return False
+    if "." not in domain:
+        return False
+    if domain.startswith(".") or domain.endswith("."):
+        return False
+    return True
+ 
+def parse_registration(line, expected_department):
+    fields = [item.strip() for item in line.strip().split(",")]
+    if len(fields) != 5:
+        raise InvalidRegistration(
+            f"expected 5 fields, found {len(fields)}"
+        )
+ 
+    reg_no, name, department, email, events_text = fields
+ 
+    if not reg_no or not name:
+        raise InvalidRegistration("register number and name are required")
+    if department.casefold() != expected_department.casefold():
+        raise InvalidRegistration("department does not match input file")
+    if not valid_email(email):
+        raise InvalidRegistration("invalid e-mail address")
+ 
+    events = []
+    for event in events_text.split(";"):
+        event = event.strip()
+        if event and event not in events:
+            events.append(event)
+ 
+    return {
+        "register_no": reg_no,
+        "name": name,
+        "department": department,
+        "email": email,
+        "events": events
+    }
+ 
+def process_files(department_files):
+    seen = set()
+    master = []
+    event_groups = {}
+    errors = []
+    duplicates = 0
+    invalid_emails = 0
+    damaged = 0
+ 
+    for department, path in department_files:
+        try:
+            with open(path, "r", encoding="utf-8") as file:
+                for line_no, line in enumerate(file, start=1):
+                    if not line.strip():
+                        continue
+                    try:
+                        record = parse_registration(line, department)
+ 
+                        if record["register_no"] in seen:
+                            duplicates += 1
+                            raise InvalidRegistration(
+                                "duplicate register number"
+                            )
+ 
+                        seen.add(record["register_no"])
+                        master.append(record)
+ 
+                        for event in record["events"]:
+                            event_groups.setdefault(event, []).append(record)
+ 
+                    except InvalidRegistration as error:
+                        damaged += 1
+                        if "e-mail" in str(error):
+                            invalid_emails += 1
+                        errors.append(
+                            (str(path), line_no, str(error), line.rstrip("\n"))
+                        )
+ 
+        except (FileNotFoundError, PermissionError, UnicodeDecodeError) as error:
+            errors.append((str(path), 0, str(error), ""))
+ 
+    return master, event_groups, {
+        "valid": len(master),
+        "duplicates": duplicates,
+        "invalid_emails": invalid_emails,
+        "damaged": damaged
+    }, errors
+ 
+def write_outputs(master, event_groups, summary, errors):
+    with open("master_list.csv", "w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["Register Number", "Name", "Department", "Email"])
+        for item in master:
+            writer.writerow([
+                item["register_no"], item["name"],
+                item["department"], item["email"]
+            ])
+ 
+    for event, participants in event_groups.items():
+        safe_name = "".join(
+            ch if ch.isalnum() or ch in "-_" else "_" for ch in event
+        )
+        with open(f"event_{safe_name}.csv", "w",
+                  newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            writer.writerow(["Register Number", "Name", "Department", "Email"])
+            for item in participants:
+                writer.writerow([
+                    item["register_no"], item["name"],
+                    item["department"], item["email"]
+                ])
+ 
+    with open("summary.txt", "w", encoding="utf-8") as file:
+        for key, value in summary.items():
+            file.write(f"{key}: {value}\n")
+        file.write(f"Number of events: {len(event_groups)}\n")
+        for event, participants in sorted(event_groups.items()):
+            file.write(f"{event}: {len(participants)} participants\n")
+ 
+    with open("error_log.txt", "w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["File", "Line", "Reason", "Original Line"])
+        writer.writerows(errors)
+ 
+if __name__ == "__main__":
+    departments = [
+        ("CSE", "CSE.txt"),
+        ("ECE", "ECE.txt"),
+        ("EEE", "EEE.txt"),
+        ("BME", "BME.txt"),
+        ("MECH", "MECH.txt")
+    ]
+ 
+    master, events, summary, errors = process_files(departments)
+    write_outputs(master, events, summary, errors)
+ 
+    print("Processing completed.")
+    print("Summary:", summary)
+    print("Errors logged:", len(errors))
